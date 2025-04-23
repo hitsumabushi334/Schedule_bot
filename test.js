@@ -25,18 +25,22 @@ function fileToGenerativePart(id) {
   };
 }
 
-async function runTextAndImages() {
+async function runTextAndImages(imageParts) {
   const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash-preview-04-17",
   });
 
   const prompt = "画像について説明してください";
 
-  const imageParts = [
-    fileToGenerativePart("1HOscnl6V1P19JukxRM-BrhodAmgLa7df"),
-  ];
+  // ここで imageParts があるかチェックするにぇ！
+  const contentArgs = [prompt]; // まずは prompt だけの配列を作るにぇ
+  if (imageParts) {
+    // imageParts が null や undefined じゃなかったら、配列に追加するにぇ！
+    contentArgs.push(...imageParts);
+  }
 
-  const result = await model.generateContent([prompt, ...imageParts]);
+  // 組み立てた配列を generateContent に渡すにぇ！
+  const result = await model.generateContent(contentArgs);
   const response = await result.response;
   const text = response.text();
   console.log(text);
