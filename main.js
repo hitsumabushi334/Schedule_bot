@@ -338,19 +338,6 @@ function saveScheduleToSheet(eventId, title, startTime, endTime) {
     success: true,
   };
 }
-// イベントの名前からスプレッドシート内のイベントを取得する関数
-function getEventIdByName(eventName) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  const data = sheet.getDataRange().getValues(); // シートの全データを取得
-  for (let i = 0; i < data.length; i++) {
-    if (data[i][1] === eventName) {
-      console.log("Event found in Google Sheets.");
-      return { result: data[i] }; // イベントを返す
-    }
-  }
-
-  return null; // イベントが見つからない場合はnullを返す
-}
 // スプレッドシートに登録されているすべてのイベントを取得する関数
 
 function getAllEvents() {
