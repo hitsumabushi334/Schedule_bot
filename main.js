@@ -38,7 +38,9 @@ function doPost(e) {
       const imageParts = getImage(LINE_END_POINT);
       if (imageParts) {
         try {
-          const res = runTextAndImages([imageParts]).then((res) => {
+          let input;
+          runTextAndImages([imageParts]).then((res) => {});
+          geminiRegisterSchedule(input).then((res) => {
             const response = res.response;
             const text = response.text();
             // Geminiからの応答はここでログに出力されます
@@ -61,9 +63,18 @@ function doPost(e) {
   } else if (messageType === "text") {
     // TODO テキストからカレンダーへの登録処理を書く
     // テキストメッセージが送られてきた場合の処理
-    const cache = CacheService.getScriptCache();
-    const status = cache.get("status");
-    sendMessage(reply_token, "テストです", false);
+    try {
+      geminiRegisterSchedule(messageText).then((res) => {
+        const response = res.response;
+        const text = response.text();
+        // Geminiからの応答はここでログに出力されます
+        console.log("Gemini Response:", text);
+        sendMessage(reply_token, text, false);
+      });
+    } catch (error) {
+      console.error("テキスト処理エラー:", error);
+      sendMessage(reply_token, "テキスト処理中にエラーが発生しました。", false);
+    }
   }
 
   // Blob形式で画像を取得する
@@ -151,13 +162,14 @@ function doPost(e) {
 }
 
 // Gemini経由でGoogleカレンダーにスケジュールを登録する関数
-function geminiRegisterSchedule(text) {
+async function geminiRegisterSchedule(text) {
   const currentDate = Moment.moment().format("YYYY/MM/DD HH:mm:ss");
+  console.log(currentDate);
   const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash-preview-04-17",
-    systemInstruction: `You are a good schedule manager agent and can execute the appropriate function from the given input values and mode information to achieve your objective. Your response must be in the same language as your input. Also, today's date is ${currentDate}.`,
+    systemInstruction: `You are a good schedule manager agent and can execute the appropriate function from the given input values and mode information to achieve your objective. Your response must be in the same language as your input.`,
   });
-  const registerSchedule = model
+  const RegisterSchedule = model
     .newFunction()
     .setName("registerSchedule")
     .setDescription("The function to register a schedule in Google Calendar")
@@ -173,7 +185,7 @@ function geminiRegisterSchedule(text) {
       "The end time of the event. the format is YYYY/MM/DD HH:mm"
     )
     .addParameter("explain", "STRING", "The explanation of the event");
-  const saveScheduleToSheet = model
+  const SaveScheduleToSheet = model
     .newFunction()
     .setName("saveScheduleToSheet")
     .setDescription(
@@ -191,143 +203,209 @@ function geminiRegisterSchedule(text) {
       "STRING",
       "The end time of the event. The format is YYYY/MM/DD HH:mm"
     );
+  const GetEventIdByName = model
+    .newFunction()
+    .setName("getEventIdByName")
+    .setDescription(
+      "The function to search for an event ID from an event name on a spreadsheet"
+    )
+    .addParameter("eventName", "STRING", "The name of the event to search for");
+  const GetAllEvents = model
+    .newFunction()
+    .setName("getAllEvents")
+    .setDescription(
+      "The function to retrieve information about all events registered on the spreadsheet"
+    );
+  const DeleteEvent = model
+    .newFunction()
+    .setName("deleteEvent")
+    .setDescription(
+      "Function to delete events matching an event ID from Google Calendar"
+    )
+    .addParameter("eventId", "STRING", "The ID of the event to delete");
+  const DeleteEventFromSheet = model
+    .newFunction()
+    .setName("deleteEventFromSheet")
+    .setDescription(
+      "Function to delete events matching an event ID from the spreadsheet"
+    )
+    .addParameter("eventId", "STRING", "The ID of the event to delete");
   const chat = model
-    .startChat()
-    .addFunction(registerSchedule)
-    .addFunction(saveScheduleToSheet);
+    .startChat({ temperature: 0.1 })
+    .addFunction(RegisterSchedule)
+    .addFunction(SaveScheduleToSheet)
+    .addFunction(GetAllEvents)
+    .addFunction(DeleteEvent)
+    .addFunction(DeleteEventFromSheet);
   const prompt = `## rule\n
-    From the given text or image, perform the appropriate operation according to the mode.If the input is an image, extract the information from the image that seems to be the schedule you want to register and perform the registration.If you cannot find the information you need to register, do not register it and tell us that you cannot find it.\n
+    From the given text or image, perform the appropriate operation according to the mode.If the input is an image, extract the information from the image that seems to be the schedule you want to register and perform the registration.If you cannot find the information you need to register, do not register it and tell us that you cannot find it.Also, do not write the reasoning process in the response statement.If the input does not have a start or end time, then please assume the start time is 10:00 a.m. and the end time is one hour after the start time.Performing the same operation multiple times, such as registering the same event twice, is prohibited.\n
 
   ## mode\n
-  There are three types of mode: /register,/search,/delete.\n
+  There are three types of mode: /register,/search,/delete.
+  You must follow the procedures for each mode.\n
+  
   ### /register mode\n
   1. extract necessary information from the input and register the schedule to Google Calendar.\n
   2. After registering the schedule, save the registered schedule in a spreadsheet.\n
   3. inform the user that the registration has been completed.\n
   4. if the schedule registration failed, inform the user of the failure.\n
+  5. The output message should be as follows。
+  ｢{イベント名}の登録を{開始時間}から{終了時間}まで完了しました。｣\n
 
   ### /search mode\n
   1. Retrieves all events registered in the spreadsheet.\n
   2. retrieve the event closest to the event contained in the input from among the retrieved events.\n
   3. informs the user of the search results.\n
-  If the event was not found, informs the user that it was not found.\n
+  4.  - The output message should be as follows。
+  ｢発見されたは次のとおりです。{イベント名}、{開始時間(YYYY/MM/DD HH:mm GMT+9:00)}、{終了時間(YYYY/MM/DD HH:mm GMT+9:00)}、{イベントID}｣\n
+  5. If the event was not found, informs the user that it was not found.\n
 
   ### /delete mode\n
   1. Retrieves all events registered in the spreadsheet.\n
   2. retrieve the event closest to the event contained in the input from among the retrieved events.\n
   3. delete the event from Google Calendar using the ID of the matched event.\n
-  4. informs the user that the deletion has been completed.\n
-  5. if the event was not found, tell the user that it was not found.\n
-
+  4. Delete the corresponding event from the spreadsheet.
+  5. informs the user that the deletion has been completed.\n
+  6.  - The output message should be as follows。
+  ｢{イベント名}の削除が完了しました。｣\n
+  7. if the event was not found, tell the user that it was not found.\n
+  
   ## input\n
-  {text}\n
+  ${text}\n 
+
+  ## curentdate\n
+  ${currentDate}\n
 
   ##mode\n
-  /register\n
+  /search\n
 `;
-
-  // googleカレンダーに登録する関数
-  function registerSchedule(title, startTime, endTime, explain) {
-    // Momentライブラリが存在するか確認
-    if (typeof Moment === "undefined" || !Moment.moment) {
-      throw new Error(
-        "Momentライブラリが見つからないか、正しく読み込まれていません。"
-      );
-    }
-    // 日付文字列のフォーマット検証（簡易的）
-    const dateTimeFormat = "YYYY/MM/DD HH:mm";
-    if (
-      !Moment.moment(startTime, dateTimeFormat, true).isValid() ||
-      !Moment.moment(endTime, dateTimeFormat, true).isValid()
-    ) {
-      throw new Error(
-        `日付/時刻の形式が無効です。"${dateTimeFormat}" 形式で指定してください。(例: ${startTime}, ${endTime})`
-      );
-    }
-
-    const startMoment = Moment.moment(startTime, dateTimeFormat);
-    const endMoment = Moment.moment(endTime, dateTimeFormat);
-
-    // 終了時刻が開始時刻より前でないか確認
-    if (endMoment.isBefore(startMoment)) {
-      throw new Error(
-        `終了時刻(${endTime})が開始時刻(${startTime})より前になっています。`
-      );
-    }
-
-    console.log(`Creating event: "${title}" from ${startTime} to ${endTime}`);
-    const event = CalendarApp.getDefaultCalendar().createEvent(
-      title,
-      startMoment.toDate(), // MomentオブジェクトをDateオブジェクトに変換
-      endMoment.toDate(), // MomentオブジェクトをDateオブジェクトに変換
-      {
-        description: explain,
-      }
+  const result = await chat.sendMessage(prompt);
+  const response = await result.response;
+  const answer = response.text();
+  console.log("Gemini Response:", answer);
+  return result;
+}
+// googleカレンダーに登録する関数
+function registerSchedule(title, startTime, endTime, explain) {
+  // Momentライブラリが存在するか確認
+  if (typeof Moment === "undefined" || !Moment.moment) {
+    throw new Error(
+      "Momentライブラリが見つからないか、正しく読み込まれていません。"
     );
-    console.log("Event created successfully in Google Calendar.");
-    return event.getId();
   }
-  // 登録したスケジュールをスプレッドシートに保存する関数
-  function saveScheduleToSheet(eventId, title, startTime, endTime) {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    const lastRow = sheet.getLastRow() + 1; // 最終行の次の行に追加
-    sheet
-      .getRange(lastRow, 1, 1, 4)
-      .setValues([[eventId, title, startTime, endTime]]); // 1行4列のデータを追加
-    console.log("Schedule saved to Google Sheets successfully.");
-    return true;
+  // 日付文字列のフォーマット検証（簡易的）
+  const dateTimeFormat = "YYYY/MM/DD HH:mm";
+  if (
+    !Moment.moment(startTime, dateTimeFormat, true).isValid() ||
+    !Moment.moment(endTime, dateTimeFormat, true).isValid()
+  ) {
+    throw new Error(
+      `日付/時刻の形式が無効です。"${dateTimeFormat}" 形式で指定してください。(例: ${startTime}, ${endTime})`
+    );
   }
-  // イベントの名前からスプレッドシート内のイベントを取得する関数
-  function getEventIdByName(eventName) {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    const data = sheet.getDataRange().getValues(); // シートの全データを取得
-    for (let i = 0; i < data.length; i++) {
-      if (data[i][1] === eventName) {
-        return data[i]; // イベントを返す
-      }
-    }
-    return null; // イベントが見つからない場合はnullを返す
-  }
-  // スプレッドシートに登録されているすべてのイベントを取得する関数
 
-  function getAllEvents() {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    const data = sheet.getDataRange().getValues();
-    const events = [];
-    for (let i = 0; i < data.length; i++) {
-      events.push({
-        id: data[i][0],
-        title: data[i][1],
-        startTime: data[i][2],
-        endTime: data[i][3],
-      });
-    }
-    return events;
+  const startMoment = Moment.moment(startTime, dateTimeFormat);
+  const endMoment = Moment.moment(endTime, dateTimeFormat);
+
+  // 終了時刻が開始時刻より前でないか確認
+  if (endMoment.isBefore(startMoment)) {
+    throw new Error(
+      `終了時刻(${endTime})が開始時刻(${startTime})より前になっています。`
+    );
   }
-  // カレンダーからイベントを削除する関数
-  function deleteEvent(eventId) {
-    const calendar = CalendarApp.getDefaultCalendar();
-    const event = calendar.getEventById(eventId);
-    if (event) {
-      event.deleteEvent(); // イベントを削除
-      console.log("Event deleted successfully from Google Calendar.");
-      return true;
-    } else {
-      console.log("Event not found in Google Calendar.");
-      return false;
+
+  console.log(`Creating event: "${title}" from ${startTime} to ${endTime}`);
+  const event = CalendarApp.getDefaultCalendar().createEvent(
+    title,
+    startMoment.toDate(), // MomentオブジェクトをDateオブジェクトに変換
+    endMoment.toDate(), // MomentオブジェクトをDateオブジェクトに変換
+    {
+      description: explain,
+    }
+  );
+  console.log("Event created successfully in Google Calendar.");
+  return event.getId();
+}
+// 登録したスケジュールをスプレッドシートに保存する関数
+function saveScheduleToSheet(eventId, title, startTime, endTime) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const lastRow = sheet.getLastRow() + 1; // 最終行の次の行に追加
+  sheet
+    .getRange(lastRow, 1, 1, 4)
+    .setValues([[eventId, title, startTime, endTime]]); // 1行4列のデータを追加
+  console.log("Schedule saved to Google Sheets successfully.");
+  return {
+    success: true,
+  };
+}
+// イベントの名前からスプレッドシート内のイベントを取得する関数
+function getEventIdByName(eventName) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const data = sheet.getDataRange().getValues(); // シートの全データを取得
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][1] === eventName) {
+      console.log("Event found in Google Sheets.");
+      return { result: data[i] }; // イベントを返す
     }
   }
-  // スプレッドシートから今日より前のイベントを削除する関数
-  function deleteOldEvents() {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    const data = sheet.getDataRange().getValues(); // シートの全データを取得
-    const now = new Date(); // 現在の日付を取得
-    for (let i = data.length - 1; i >= 0; i--) {
-      const eventDate = new Date(data[i][3]); // 日付を取得
-      if (eventDate < now) {
-        sheet.deleteRow(i + 1); // スプレッドシートから行を削除
-      }
-    }
-    console.log("Old events deleted from Google Sheets and Calendar.");
+
+  return null; // イベントが見つからない場合はnullを返す
+}
+// スプレッドシートに登録されているすべてのイベントを取得する関数
+
+function getAllEvents() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const data = sheet.getDataRange().getValues();
+  const events = [];
+  for (let i = 0; i < data.length; i++) {
+    events.push({
+      id: data[i][0],
+      title: data[i][1],
+      startTime: data[i][2],
+      endTime: data[i][3],
+    });
   }
+  console.log("All events retrieved from Google Sheets successfully.");
+
+  return { result: events };
+}
+// カレンダーからイベントを削除する関数
+function deleteEvent(eventId) {
+  const calendar = CalendarApp.getDefaultCalendar();
+  const event = calendar.getEventById(eventId);
+  if (event) {
+    event.deleteEvent(); // イベントを削除
+    console.log("Event deleted successfully from Google Calendar.");
+    return { success: true };
+  } else {
+    console.log("Event not found in Google Calendar.");
+    return { success: false };
+  }
+}
+// スプレッドシートからイベントIDに一致するイベントを削除する関数
+function deleteEventFromSheet(eventId) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const data = sheet.getDataRange().getValues(); // シートの全データを取得
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (data[i][0] === eventId) {
+      sheet.deleteRow(i + 1); // スプレッドシートから行を削除
+      console.log("Event deleted from Google Sheets successfully.");
+      return { success: true };
+    }
+  }
+  console.log("Event not found in Google Sheets.");
+  return { success: false };
+}
+// スプレッドシートから今日より前のイベントを削除する関数
+function deleteOldEvents() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const data = sheet.getDataRange().getValues(); // シートの全データを取得
+  const now = new Date(); // 現在の日付を取得
+  for (let i = data.length - 1; i >= 0; i--) {
+    const eventDate = new Date(data[i][3]); // 日付を取得
+    if (eventDate < now) {
+      sheet.deleteRow(i + 1); // スプレッドシートから行を削除
+    }
+  }
+  console.log("Old events deleted from Google Sheets and Calendar.");
 }

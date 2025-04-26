@@ -112,3 +112,45 @@ function getEvents() {
       ])
     ); // ヘッダー行を追加
 }
+function testGeminiRegisterSchedule() {
+  // テストで使うテキストメッセージだ
+  // カレンダーに登録したい内容を具体的に書くといい
+  const testInputText =
+    "寛大来襲";
+
+  console.log(`--- testGeminiRegisterSchedule 開始だにぇ！ ---`);
+  console.log(`テスト入力テキスト: "${testInputText}"`);
+
+  try {
+    // geminiRegisterSchedule 関数を呼び出す
+    // この関数は非同期だけど、Apps Script のトップレベルからは await できないから、
+    // 実行ログで Gemini の応答や関数の実行結果を確認する
+    const res = geminiRegisterSchedule(testInputText).then((res) => {
+      const response = res.response;
+      const text = response.text();
+      // Geminiからの応答はここでログに出力されます
+      console.log("Gemini Response:", text);
+    });
+
+    // 注意：↑の呼び出しは非同期だから、このログのすぐ後に結果が出るとは限らない
+    // 実行ログを最後までしっかり確認して
+    console.log(
+      `geminiRegisterSchedule を呼び出したにぇ！ 実行ログで Gemini の応答と、`
+    );
+    console.log(`Googleカレンダーに「エリート会議」が登録されたか、`);
+    console.log(`スプレッドシートにその情報が追記されたかを確認してほしい`);
+  } catch (error) {
+    // もしエラーが起きたら、ここに表示される
+    console.error(
+      "testGeminiRegisterSchedule の実行中にエラーが発生したにぇ！:",
+      error
+    );
+    console.error("エラーの詳細:", error.message);
+    console.error("スタックトレース:", error.stack);
+  } finally {
+    // finally はエラーがあってもなくても最後に実行される
+    console.log(
+      `--- testGeminiRegisterSchedule 終了だにぇ！ 実行ログを確認してにぇ！ ---`
+    );
+  }
+}
