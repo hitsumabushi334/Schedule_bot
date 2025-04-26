@@ -10,7 +10,7 @@ function test01() {
   // runTextAndImages を呼び出します。結果は実行ログで確認します。
   runTextAndImages(res);
   // この console.log は不要です。
-  // console.log(responce);
+  // console.log(response);
 }
 
 // Converts a Google Drive image file ID to a GoogleGenerativeAI.Part object
@@ -30,6 +30,7 @@ function fileToGenerativePart(id) {
 async function runTextAndImages(imageParts) {
   const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash-preview-04-17",
+    systemInstruction: `あなたは優れた秘書であり私の言葉から適切な情報を取得することができます。日本語で必ず回答し、指示を厳守すること。今日の日付は${currentDate}です。`,
   });
 
   const prompt = "画像について説明してください";

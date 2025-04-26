@@ -152,113 +152,182 @@ function doPost(e) {
 
 // Gemini経由でGoogleカレンダーにスケジュールを登録する関数
 function geminiRegisterSchedule(text) {
-  const model = GeminiApp.getModel("gemini-2.5-flash-preview-04-17");
+  const currentDate = Moment.moment().format("YYYY/MM/DD HH:mm:ss");
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash-preview-04-17",
+    systemInstruction: `You are a good schedule manager agent and can execute the appropriate function from the given input values and mode information to achieve your objective. Your response must be in the same language as your input. Also, today's date is ${currentDate}.`,
+  });
   const registerSchedule = model
     .newFunction()
     .setName("registerSchedule")
     .setDescription("The function to register a schedule in Google Calendar")
-    .addParameter("title", "string", "The title of the event")
+    .addParameter("title", "STRING", "The title of the event")
     .addParameter(
       "startTime",
-      "string",
+      "STRING",
       "The start time of the event. the format is YYYY/MM/DD HH:mm"
     )
     .addParameter(
       "endTime",
-      "string",
+      "STRING",
       "The end time of the event. the format is YYYY/MM/DD HH:mm"
     )
-    .addParameter("explain", "string", "The explanation of the event");
-}
-const prompt = [
-  "あなたはスケジュール管理を担う優れたマネージャーです。",
-  "与えられたテキストとモードの情報から適切な処理を行ってください。",
-];
-// googleカレンダーに登録する関数
-function registerSchedule(title, startTime, endTime, explain) {
-  // Momentライブラリが存在するか確認
-  if (typeof Moment === "undefined" || !Moment.moment) {
-    throw new Error(
-      "Momentライブラリが見つからないか、正しく読み込まれていません。"
+    .addParameter("explain", "STRING", "The explanation of the event");
+  const saveScheduleToSheet = model
+    .newFunction()
+    .setName("saveScheduleToSheet")
+    .setDescription(
+      "The function to store information about an event in a spreadsheet"
+    )
+    .addParameter("eventId", "STRING", "The ID of the event")
+    .addParameter("title", "STRING", "The title of the event")
+    .addParameter(
+      "startTime",
+      "STRING",
+      "The start time of the event. The format is YYYY/MM/DD HH:mm"
+    )
+    .addParameter(
+      "endTime",
+      "STRING",
+      "The end time of the event. The format is YYYY/MM/DD HH:mm"
     );
-  }
-  // 日付文字列のフォーマット検証（簡易的）
-  const dateTimeFormat = "YYYY/MM/DD HH:mm";
-  if (
-    !Moment.moment(startTime, dateTimeFormat, true).isValid() ||
-    !Moment.moment(endTime, dateTimeFormat, true).isValid()
-  ) {
-    throw new Error(
-      `日付/時刻の形式が無効です。"${dateTimeFormat}" 形式で指定してください。(例: ${startTime}, ${endTime})`
-    );
-  }
+  const chat = model
+    .startChat()
+    .addFunction(registerSchedule)
+    .addFunction(saveScheduleToSheet);
+  const prompt = `## rule\n
+    From the given text or image, perform the appropriate operation according to the mode.If the input is an image, extract the information from the image that seems to be the schedule you want to register and perform the registration.If you cannot find the information you need to register, do not register it and tell us that you cannot find it.\n
 
-  const startMoment = Moment.moment(startTime, dateTimeFormat);
-  const endMoment = Moment.moment(endTime, dateTimeFormat);
+  ## mode\n
+  There are three types of mode: /register,/search,/delete.\n
+  ### /register mode\n
+  1. extract necessary information from the input and register the schedule to Google Calendar.\n
+  2. After registering the schedule, save the registered schedule in a spreadsheet.\n
+  3. inform the user that the registration has been completed.\n
+  4. if the schedule registration failed, inform the user of the failure.\n
 
-  // 終了時刻が開始時刻より前でないか確認
-  if (endMoment.isBefore(startMoment)) {
-    throw new Error(
-      `終了時刻(${endTime})が開始時刻(${startTime})より前になっています。`
-    );
-  }
+  ### /search mode\n
+  1. Retrieves all events registered in the spreadsheet.\n
+  2. retrieve the event closest to the event contained in the input from among the retrieved events.\n
+  3. informs the user of the search results.\n
+  If the event was not found, informs the user that it was not found.\n
 
-  console.log(`Creating event: "${title}" from ${startTime} to ${endTime}`);
-  const event = CalendarApp.getDefaultCalendar().createEvent(
-    title,
-    startMoment.toDate(), // MomentオブジェクトをDateオブジェクトに変換
-    endMoment.toDate(), // MomentオブジェクトをDateオブジェクトに変換
-    {
-      description: explain,
+  ### /delete mode\n
+  1. Retrieves all events registered in the spreadsheet.\n
+  2. retrieve the event closest to the event contained in the input from among the retrieved events.\n
+  3. delete the event from Google Calendar using the ID of the matched event.\n
+  4. informs the user that the deletion has been completed.\n
+  5. if the event was not found, tell the user that it was not found.\n
+
+  ## input\n
+  {text}\n
+
+  ##mode\n
+  /register\n
+`;
+
+  // googleカレンダーに登録する関数
+  function registerSchedule(title, startTime, endTime, explain) {
+    // Momentライブラリが存在するか確認
+    if (typeof Moment === "undefined" || !Moment.moment) {
+      throw new Error(
+        "Momentライブラリが見つからないか、正しく読み込まれていません。"
+      );
     }
-  );
-  console.log("Event created successfully in Google Calendar.");
-  return event.getId();
-}
-// 登録したスケジュールをスプレッドシートに保存する関数
-function saveScheduleToSheet(eventId, title, startTime, endTime) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  const lastRow = sheet.getLastRow() + 1; // 最終行の次の行に追加
-  sheet
-    .getRange(lastRow, 1, 1, 4)
-    .setValues([[eventId, title, startTime, endTime]]); // 1行4列のデータを追加
-  console.log("Schedule saved to Google Sheets successfully.");
-  return true;
-}
-// イベントの名前からスプレッドシート内のイベントを取得する関数
-function getEventIdByName(eventName) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  const data = sheet.getDataRange().getValues(); // シートの全データを取得
-  for (let i = 0; i < data.length; i++) {
-    if (data[i][1] === eventName) {
-      return data[i]; // イベントを返す
+    // 日付文字列のフォーマット検証（簡易的）
+    const dateTimeFormat = "YYYY/MM/DD HH:mm";
+    if (
+      !Moment.moment(startTime, dateTimeFormat, true).isValid() ||
+      !Moment.moment(endTime, dateTimeFormat, true).isValid()
+    ) {
+      throw new Error(
+        `日付/時刻の形式が無効です。"${dateTimeFormat}" 形式で指定してください。(例: ${startTime}, ${endTime})`
+      );
     }
+
+    const startMoment = Moment.moment(startTime, dateTimeFormat);
+    const endMoment = Moment.moment(endTime, dateTimeFormat);
+
+    // 終了時刻が開始時刻より前でないか確認
+    if (endMoment.isBefore(startMoment)) {
+      throw new Error(
+        `終了時刻(${endTime})が開始時刻(${startTime})より前になっています。`
+      );
+    }
+
+    console.log(`Creating event: "${title}" from ${startTime} to ${endTime}`);
+    const event = CalendarApp.getDefaultCalendar().createEvent(
+      title,
+      startMoment.toDate(), // MomentオブジェクトをDateオブジェクトに変換
+      endMoment.toDate(), // MomentオブジェクトをDateオブジェクトに変換
+      {
+        description: explain,
+      }
+    );
+    console.log("Event created successfully in Google Calendar.");
+    return event.getId();
   }
-  return null; // イベントが見つからない場合はnullを返す
-}
-// カレンダーからイベントを削除する関数
-function deleteEvent(eventId) {
-  const calendar = CalendarApp.getDefaultCalendar();
-  const event = calendar.getEventById(eventId);
-  if (event) {
-    event.deleteEvent(); // イベントを削除
-    console.log("Event deleted successfully from Google Calendar.");
+  // 登録したスケジュールをスプレッドシートに保存する関数
+  function saveScheduleToSheet(eventId, title, startTime, endTime) {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    const lastRow = sheet.getLastRow() + 1; // 最終行の次の行に追加
+    sheet
+      .getRange(lastRow, 1, 1, 4)
+      .setValues([[eventId, title, startTime, endTime]]); // 1行4列のデータを追加
+    console.log("Schedule saved to Google Sheets successfully.");
     return true;
-  } else {
-    console.log("Event not found in Google Calendar.");
-    return false;
   }
-}
-// スプレッドシートから今日より前のイベントを削除する関数
-function deleteOldEvents() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  const data = sheet.getDataRange().getValues(); // シートの全データを取得
-  const now = new Date(); // 現在の日付を取得
-  for (let i = data.length - 1; i >= 0; i--) {
-    const eventDate = new Date(data[i][3]); // 日付を取得
-    if (eventDate < now) {
-      sheet.deleteRow(i + 1); // スプレッドシートから行を削除
+  // イベントの名前からスプレッドシート内のイベントを取得する関数
+  function getEventIdByName(eventName) {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    const data = sheet.getDataRange().getValues(); // シートの全データを取得
+    for (let i = 0; i < data.length; i++) {
+      if (data[i][1] === eventName) {
+        return data[i]; // イベントを返す
+      }
+    }
+    return null; // イベントが見つからない場合はnullを返す
+  }
+  // スプレッドシートに登録されているすべてのイベントを取得する関数
+
+  function getAllEvents() {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    const data = sheet.getDataRange().getValues();
+    const events = [];
+    for (let i = 0; i < data.length; i++) {
+      events.push({
+        id: data[i][0],
+        title: data[i][1],
+        startTime: data[i][2],
+        endTime: data[i][3],
+      });
+    }
+    return events;
+  }
+  // カレンダーからイベントを削除する関数
+  function deleteEvent(eventId) {
+    const calendar = CalendarApp.getDefaultCalendar();
+    const event = calendar.getEventById(eventId);
+    if (event) {
+      event.deleteEvent(); // イベントを削除
+      console.log("Event deleted successfully from Google Calendar.");
+      return true;
+    } else {
+      console.log("Event not found in Google Calendar.");
+      return false;
     }
   }
-  console.log("Old events deleted from Google Sheets and Calendar.");
+  // スプレッドシートから今日より前のイベントを削除する関数
+  function deleteOldEvents() {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    const data = sheet.getDataRange().getValues(); // シートの全データを取得
+    const now = new Date(); // 現在の日付を取得
+    for (let i = data.length - 1; i >= 0; i--) {
+      const eventDate = new Date(data[i][3]); // 日付を取得
+      if (eventDate < now) {
+        sheet.deleteRow(i + 1); // スプレッドシートから行を削除
+      }
+    }
+    console.log("Old events deleted from Google Sheets and Calendar.");
+  }
 }
