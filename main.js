@@ -38,14 +38,20 @@ function doPost(e) {
       const imageParts = getImage(LINE_END_POINT);
       if (imageParts) {
         try {
-          let input;
-          runTextAndImages([imageParts]).then((res) => {});
-          geminiRegisterSchedule(input).then((res) => {
+          const input = extractScheduleInfoFromImage(imageParts).then((res) => {
             const response = res.response;
             const text = response.text();
-            // Geminiからの応答はここでログに出力されます
-            console.log("Gemini Response:", text);
-            sendMessage(reply_token, text, false);
+            return text;
+          });
+          input.then((text) => {
+            // Wait for input to resolve
+            geminiRegisterSchedule(text).then((res) => {
+              const response = res.response;
+              const text = response.text();
+              // Geminiからの応答はここでログに出力されます
+              console.log("Gemini Response:", text);
+              sendMessage(reply_token, text, false);
+            });
           });
         } catch (error) {
           console.error("テキスト処理エラー:", error);
@@ -63,17 +69,52 @@ function doPost(e) {
   } else if (messageType === "text") {
     // TODO テキストからカレンダーへの登録処理を書く
     // テキストメッセージが送られてきた場合の処理
-    try {
-      geminiRegisterSchedule(messageText).then((res) => {
-        const response = res.response;
-        const text = response.text();
-        // Geminiからの応答はここでログに出力されます
-        console.log("Gemini Response:", text);
-        sendMessage(reply_token, text, false);
-      });
-    } catch (error) {
-      console.error("テキスト処理エラー:", error);
-      sendMessage(reply_token, "テキスト処理中にエラーが発生しました。", false);
+    switch (true) {
+      case messageText === "/register":
+        PropertiesService.getScriptProperties().setProperty(
+          "mode",
+          "/register"
+        );
+        sendMessage(
+          reply_token,
+          "登録モードに切り替えました。\n 登録したいイベントを記入してください。",
+          false
+        );
+        break;
+      case messageText === "/search":
+        PropertiesService.getScriptProperties().setProperty("mode", "/search");
+        sendMessage(
+          reply_token,
+          "検索モードに切り替えました。\n 検索したいイベントを記入してください。",
+          false
+        );
+        break;
+      case messageText === "/delete":
+        PropertiesService.getScriptProperties().setProperty("mode", "/delete");
+        sendMessage(
+          reply_token,
+          "削除モードに切り替えました。\n 削除したいイベントを記入してください。",
+          false
+        );
+        break;
+      default:
+        try {
+          geminiRegisterSchedule(messageText).then((res) => {
+            const response = res.response;
+            const text = response.text();
+            // Geminiからの応答はここでログに出力されます
+            console.log("Gemini Response:", text);
+            sendMessage(reply_token, text, false);
+            PropertiesService.getScriptProperties().setProperty('mode','/register');
+          });
+        } catch (error) {
+          console.error("テキスト処理エラー:", error);
+          sendMessage(
+            reply_token,
+            "テキスト処理中にエラーが発生しました。",
+            false
+          );
+        }
     }
   }
 
@@ -163,6 +204,7 @@ function doPost(e) {
 
 // Gemini経由でGoogleカレンダーにスケジュールを登録する関数
 async function geminiRegisterSchedule(text) {
+  const mode = PropertiesService.getScriptProperties().getProperty('mode');
   const currentDate = Moment.moment().format("YYYY/MM/DD HH:mm:ss");
   console.log(currentDate);
   const model = genAI.getGenerativeModel({
@@ -238,7 +280,8 @@ async function geminiRegisterSchedule(text) {
     .addFunction(DeleteEvent)
     .addFunction(DeleteEventFromSheet);
   const prompt = `## rule\n
-    From the given text or image, perform the appropriate operation according to the mode.If the input is an image, extract the information from the image that seems to be the schedule you want to register and perform the registration.If you cannot find the information you need to register, do not register it and tell us that you cannot find it.Also, do not write the reasoning process in the response statement.If the input does not have a start or end time, then please assume the start time is 10:00 a.m. and the end time is one hour after the start time.Performing the same operation multiple times, such as registering the same event twice, is prohibited.\n
+    From the given text or image, perform the appropriate operation according to the mode.If the input is an image, extract the information from the image that seems to be the schedule you want to register and perform the registration.If you cannot find the information you need to register, do not register it and tell us that you cannot find it.Also, do not write the reasoning process in the response statement.If the input does not have a start or end time, then please assume the start time is 10:00 a.m. and the end time is one hour after the start time.Do not performing the same operation multiple times, such as registering the same event twice.Responses must be in Japanese.Please use general common sense in determining the start or end time, morning or afternoon.\n
+
 
   ## mode\n
   There are three types of mode: /register,/search,/delete.
@@ -277,13 +320,18 @@ async function geminiRegisterSchedule(text) {
   ${currentDate}\n
 
   ##mode\n
-  /search\n
+  ${mode}\n
 `;
-  const result = await chat.sendMessage(prompt);
-  const response = await result.response;
-  const answer = response.text();
-  console.log("Gemini Response:", answer);
-  return result;
+  try {
+    const result = await chat.sendMessage(prompt);
+    const response = await result.response;
+    const answer = response.text();
+    console.log("Gemini Response:", answer);
+    return result;
+  } catch (error) {
+    console.error("Error occurred:", error);
+    throw error;
+  }
 }
 // googleカレンダーに登録する関数
 function registerSchedule(title, startTime, endTime, explain) {
@@ -395,4 +443,22 @@ function deleteOldEvents() {
     }
   }
   console.log("Old events deleted from Google Sheets and Calendar.");
+}
+// 画像からスケジュール登録に必要な情報を抽出する関数
+async function extractScheduleInfoFromImage(imageParts) {
+  const currentDate = Moment.moment().format("YYYY/MM/DD HH:mm:ss");
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.0-flash",
+    systemInstruction: `You are a good schedule manager agent and can execute the appropriate function from the given input values and mode information to achieve your objective. Your response must be in the same language as your input.`,
+  });
+  const prompt = `## rule\n
+  Extract the information necessary for schedule registration from the image given as input.The extracted information should be output in a format to be passed to a function for schedule registration.The output should be in the following format.｢イベント名：{Event Name}、開始時間：{Start time(YYYY/MM/DD HH:mm:ss)}、終了時間：{End time(YYYY/MM/DD HH:mm:ss).}、説明文：{explanatory note}｣.\n
+  If you do not see any text regarding scheduling in the image, do not schedule and put Null for the various parameters.
+  The image may also contain information that has nothing to do with the schedule, in which case, please ignore such information as noise. If the input does not have a start or end time, then please assume the start time is 10:00 a.m. and the end time is one hour after the start time.   Please use general common sense in determining the start or end time, morning or afternoon.
+  ## currentDate  ${currentDate}\n`;
+  const result = await model.generateContent([prompt, ...imageParts]);
+  const response = await result.response;
+  const text = response.text();
+  console.log("Gemini Response:", text);
+  return result;
 }

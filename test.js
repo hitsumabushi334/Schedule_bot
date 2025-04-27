@@ -1,16 +1,48 @@
-function test01() {
+async function test01() {
+  // async を追加するにぇ！
   const folderId = PropertiesService.getScriptProperties().getProperty(
     "GOOGLE_DRIVE_FOLDER_ID"
   );
-  const fileName = "IMG_20210516_195729.jpg";
+  const fileName = "IMG_20210516_195729.jpg"; // テストしたい画像ファイル名に変えてにぇ！
   const file = DriveApp.getFilesByName(fileName).next();
   const fileId = file.getId();
   console.log("File ID:", fileId);
-  const res = [fileToGenerativePart(fileId)];
-  // runTextAndImages を呼び出します。結果は実行ログで確認します。
-  runTextAndImages(res);
-  // この console.log は不要です。
-  // console.log(response);
+  const imageParts = [fileToGenerativePart(fileId)]; // 画像パーツを作るにぇ！
+
+  // ここから書き換えるにぇ！
+  try {
+    // まず extractScheduleInfoFromImage を呼び出すにぇ！
+    extractScheduleInfoFromImage(imageParts)
+      .then((extractRes) => {
+        // レスポンスからテキストを取り出すにぇ！
+        const extractResponse = extractRes.response;
+        const extractedText = extractResponse.text();
+        console.log("抽出されたテキスト:", extractedText); // 抽出結果を確認するログだにぇ！
+        return extractedText; // 次の .then にテキストを渡すにぇ！
+      })
+      .then((text) => {
+        // 抽出したテキストを使って geminiRegisterSchedule を呼び出すにぇ！
+        console.log("geminiRegisterSchedule に渡すテキスト:", text); // 渡すテキストを確認するログだにぇ！
+        return geminiRegisterSchedule(text).then((registerRes) => {
+          // geminiRegisterSchedule も Promise を返すから .then を使うにぇ！
+          // geminiRegisterSchedule の結果を処理するにぇ！
+          const registerResponse = registerRes.response;
+          const registerText = registerResponse.text();
+          // Geminiからの最終的な応答はここでログに出力されるにぇ！
+          console.log("Gemini Response (最終結果):", registerText);
+          // sendMessage はテスト関数内では使わないことが多いからコメントアウトしておくかにぇ？
+          // sendMessage(reply_token, registerText, false);
+        });
+      })
+      .catch((error) => {
+        // then のチェーン全体のエラーをキャッチするにぇ！
+        console.error("処理中にエラーが発生したにぇ！:", error);
+        // sendMessage(reply_token, "処理中にエラーが発生しました。", false);
+      });
+  } catch (error) {
+    // try ブロック自体のエラー（例えば fileToGenerativePart でのエラーなど）をキャッチするにぇ！
+    console.error("test01 関数の実行中にエラーが発生したにぇ！:", error);
+  }
 }
 
 // Converts a Google Drive image file ID to a GoogleGenerativeAI.Part object
@@ -115,8 +147,7 @@ function getEvents() {
 function testGeminiRegisterSchedule() {
   // テストで使うテキストメッセージだ
   // カレンダーに登録したい内容を具体的に書くといい
-  const testInputText =
-    "寛大来襲";
+  const testInputText = "寛大来襲";
 
   console.log(`--- testGeminiRegisterSchedule 開始だにぇ！ ---`);
   console.log(`テスト入力テキスト: "${testInputText}"`);
@@ -154,3 +185,5 @@ function testGeminiRegisterSchedule() {
     );
   }
 }
+
+
