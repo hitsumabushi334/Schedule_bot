@@ -212,7 +212,7 @@ async function geminiRegisterSchedule(text) {
   const currentDate = Moment.moment().format("YYYY/MM/DD HH:mm:ss");
   console.log(currentDate);
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash-preview-04-17",
+    model: "gemini-2.5-flash-preview-05-20",
     systemInstruction: `You are a good schedule manager agent and can execute the appropriate function from the given input values and mode information to achieve your objective. Your response must be in the same language as your input.`,
   });
   const RegisterSchedule = model
