@@ -435,7 +435,11 @@ function getAllEvents() {
       });
     }
     console.log("All events retrieved from Google Sheets successfully.");
-    return { success: true, result: events };
+    return {
+      success: true,
+      message: "すべてのイベントを取得しました。",
+      result: events,
+    };
   } catch (error) {
     console.error("Error retrieving events from Google Sheets:", error);
     return {
