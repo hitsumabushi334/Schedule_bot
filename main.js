@@ -368,46 +368,81 @@ function registerSchedule(title, startTime, endTime, explain) {
   }
 
   console.log(`Creating event: "${title}" from ${startTime} to ${endTime}`);
-  const event = CalendarApp.getDefaultCalendar().createEvent(
-    title,
-    startMoment.toDate(), // MomentオブジェクトをDateオブジェクトに変換
-    endMoment.toDate(), // MomentオブジェクトをDateオブジェクトに変換
-    {
-      description: explain,
-    }
-  );
-  console.log("Event created successfully in Google Calendar.");
-  return event.getId();
+  try {
+    const event = CalendarApp.getDefaultCalendar().createEvent(
+      title,
+      startMoment.toDate(), // MomentオブジェクトをDateオブジェクトに変換
+      endMoment.toDate(), // MomentオブジェクトをDateオブジェクトに変換
+      {
+        description: explain,
+      }
+    );
+    console.log("Event created successfully in Google Calendar.");
+    return {
+      success: true,
+      message: `イベント「${title}」を${startTime}から${endTime}まで登録しました。`,
+      title: event.getTitle(),
+      startTime: event.getStartTime(),
+      endTime: event.getEndTime(),
+      eventId: event.getId(),
+    };
+  } catch (error) {
+    console.error("Error creating event in Google Calendar:", error);
+    return {
+      success: false,
+      error: "イベントの作成中にエラーが発生しました。",
+    };
+  }
 }
 // 登録したスケジュールをスプレッドシートに保存する関数
 function saveScheduleToSheet(eventId, title, startTime, endTime) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   const lastRow = sheet.getLastRow() + 1; // 最終行の次の行に追加
-  sheet
-    .getRange(lastRow, 1, 1, 4)
-    .setValues([[eventId, title, startTime, endTime]]); // 1行4列のデータを追加
-  console.log("Schedule saved to Google Sheets successfully.");
-  return {
-    success: true,
-  };
+  try {
+    sheet
+      .getRange(lastRow, 1, 1, 4)
+      .setValues([[eventId, title, startTime, endTime]]); // 1行4列のデータを追加
+    console.log("Schedule saved to Google Sheets successfully.");
+    return {
+      success: true,
+      message: `スケジュール「${title}」をスプレッドシートに保存しました。`,
+      eventId: eventId,
+      title: title,
+      startTime: startTime,
+      endTime: endTime,
+    };
+  } catch (error) {
+    console.error("Error saving schedule to Google Sheets:", error);
+    return {
+      success: false,
+      error: "スケジュールの保存中にエラーが発生しました。",
+    };
+  }
 }
 // スプレッドシートに登録されているすべてのイベントを取得する関数
 
 function getAllEvents() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   const data = sheet.getDataRange().getValues();
-  const events = [];
-  for (let i = 0; i < data.length; i++) {
-    events.push({
-      id: data[i][0],
-      title: data[i][1],
-      startTime: data[i][2],
-      endTime: data[i][3],
-    });
+  try {
+    const events = [];
+    for (let i = 0; i < data.length; i++) {
+      events.push({
+        id: data[i][0],
+        title: data[i][1],
+        startTime: data[i][2],
+        endTime: data[i][3],
+      });
+    }
+    console.log("All events retrieved from Google Sheets successfully.");
+    return { success: true, result: events };
+  } catch (error) {
+    console.error("Error retrieving events from Google Sheets:", error);
+    return {
+      success: false,
+      error: "イベントの取得中にエラーが発生しました。",
+    };
   }
-  console.log("All events retrieved from Google Sheets successfully.");
-
-  return { result: events };
 }
 // カレンダーからイベントを削除する関数
 function deleteEvent(eventId) {
@@ -416,10 +451,17 @@ function deleteEvent(eventId) {
   if (event) {
     event.deleteEvent(); // イベントを削除
     console.log("Event deleted successfully from Google Calendar.");
-    return { success: true };
+    return {
+      success: true,
+      message: `Event "${event.getTitle()}" deleted successfully.`,
+      eventId: eventId,
+    };
   } else {
     console.log("Event not found in Google Calendar.");
-    return { success: false };
+    return {
+      success: false,
+      message: `Event with ID "${eventId}" not found in Google Calendar.`,
+    };
   }
 }
 // スプレッドシートからイベントIDに一致するイベントを削除する関数
@@ -430,11 +472,18 @@ function deleteEventFromSheet(eventId) {
     if (data[i][0] === eventId) {
       sheet.deleteRow(i + 1); // スプレッドシートから行を削除
       console.log("Event deleted from Google Sheets successfully.");
-      return { success: true };
+      return {
+        success: true,
+        message: `Event with ID "${eventId}" deleted from Google Sheets.`,
+        eventId: eventId,
+      };
     }
   }
   console.log("Event not found in Google Sheets.");
-  return { success: false };
+  return {
+    success: false,
+    message: `Event with ID "${eventId}" not found in Google Sheets.`,
+  };
 }
 // スプレッドシートから今日より前のイベントを削除する関数
 function deleteOldEvents() {
