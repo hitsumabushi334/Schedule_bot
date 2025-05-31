@@ -38,21 +38,22 @@ function doPost(e) {
       const imageParts = getImage(LINE_END_POINT);
       if (imageParts) {
         try {
-          const input = extractScheduleInfoFromImage(imageParts).then((res) => {
-            const response = res.response;
-            const text = response.text();
-            return text;
-          });
-          input.then((text) => {
-            // Wait for input to resolve
-            geminiRegisterSchedule(text).then((res) => {
+          extractScheduleInfoFromImage([imageParts])
+            .then((res) => {
               const response = res.response;
               const text = response.text();
-              // Geminiからの応答はここでログに出力されます
-              console.log("Gemini Response:", text);
-              sendMessage(reply_token, text, false);
+              return text;
+            })
+            .then((text) => {
+              // Wait for input to resolve
+              geminiRegisterSchedule(text).then((res) => {
+                const response = res.response;
+                const text = response.text();
+                // Geminiからの応答はここでログに出力されます
+                console.log("Gemini Response:", text);
+                sendMessage(reply_token, text, false);
+              });
             });
-          });
         } catch (error) {
           console.error("テキスト処理エラー:", error);
           sendMessage(
@@ -105,7 +106,10 @@ function doPost(e) {
             // Geminiからの応答はここでログに出力されます
             console.log("Gemini Response:", text);
             sendMessage(reply_token, text, false);
-            PropertiesService.getScriptProperties().setProperty('mode','/register');
+            PropertiesService.getScriptProperties().setProperty(
+              "mode",
+              "/register"
+            );
           });
         } catch (error) {
           console.error("テキスト処理エラー:", error);
@@ -204,7 +208,7 @@ function doPost(e) {
 
 // Gemini経由でGoogleカレンダーにスケジュールを登録する関数
 async function geminiRegisterSchedule(text) {
-  const mode = PropertiesService.getScriptProperties().getProperty('mode');
+  const mode = PropertiesService.getScriptProperties().getProperty("mode");
   const currentDate = Moment.moment().format("YYYY/MM/DD HH:mm:ss");
   console.log(currentDate);
   const model = genAI.getGenerativeModel({
@@ -280,7 +284,8 @@ async function geminiRegisterSchedule(text) {
     .addFunction(DeleteEvent)
     .addFunction(DeleteEventFromSheet);
   const prompt = `## rule\n
-    From the given text or image, perform the appropriate operation according to the mode.If the input is an image, extract the information from the image that seems to be the schedule you want to register and perform the registration.If you cannot find the information you need to register, do not register it and tell us that you cannot find it.Also, do not write the reasoning process in the response statement.If the input does not have a start or end time, then please assume the start time is 10:00 a.m. and the end time is one hour after the start time.Do not performing the same operation multiple times, such as registering the same event twice.Responses must be in Japanese.Please use general common sense in determining the start or end time, morning or afternoon.\n
+    The following rules must be strictly observed. Perform only one operation for each input according to the mode, to avoid duplicate registration of the same appointment.
+    From the given text or image, perform the appropriate operation according to the mode.If the input is an image, extract the information from the image that seems to be the schedule you want to register and perform the registration.If you cannot find the information you need to register, do not register it and tell us that you cannot find it.Also, do not write the reasoning process in the response statement.If the input does not have a start or end time, then please assume the start time is 10:00 a.m. and the end time is one hour after the start time.Do not performing the same operation multiple times, such as registering the same event twice.Be sure to perform each operation only once each manipulate.Responses must be in Japanese.Please use general common sense in determining the start or end time, morning or afternoon.\n
 
 
   ## mode\n
